@@ -31,11 +31,11 @@ variable "html_source_dir" {
 variable "aws_access_key_id" {
   description = "AWS access key"
   type        = string
-  default     = "AKIAQKAHGU73DN4HF4WW"
+  default     = ""
 }
 
 variable "aws_secret_access_key" {
   description = "AWS secret key"
   type        = string
-  default     = "I1+lPRyYVrpj9t7dfy5FAWEEaan4oEv1JOxvp9Zx"
+  default     = ""
 }
