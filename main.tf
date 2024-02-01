@@ -4,13 +4,13 @@ resource "random_string" "bucket_suffix" {
   upper   = false
 }
 
-resource "aws_s3_bucket" "jokes_website_bucket" {
+resource "aws_s3_bucket" "jokes_website_bucket1" {
   bucket        = "${var.bucket_prefix}-${random_string.bucket_suffix.result}"
   force_destroy = true
 }
 
 resource "aws_s3_bucket_website_configuration" "jokes_website_config" {
-  bucket = aws_s3_bucket.jokes_website_bucket.id
+  bucket = aws_s3_bucket.jokes_website_bucket1.id
 
   index_document {
     suffix = var.index_document
@@ -21,7 +21,7 @@ resource "aws_s3_bucket_website_configuration" "jokes_website_config" {
 }
 
 resource "aws_s3_bucket_public_access_block" "jokes_website_public_access" {
-  bucket = aws_s3_bucket.jokes_website_bucket.id
+  bucket = aws_s3_bucket.jokes_website_bucket1.id
 
   block_public_acls       = true
   block_public_policy     = true
@@ -31,43 +31,69 @@ resource "aws_s3_bucket_public_access_block" "jokes_website_public_access" {
 
 resource "aws_s3_object" "static_site_upload_object" {
   for_each     = fileset(var.html_source_dir, "*")
-  bucket       = aws_s3_bucket.jokes_website_bucket.id
+  bucket       = aws_s3_bucket.jokes_website_bucket1.id
   key          = each.value
   source       = "${var.html_source_dir}/${each.value}"
   etag         = filemd5("${var.html_source_dir}/${each.value}")
   content_type = "text/html"
 }
 
-resource "aws_cloudfront_origin_access_identity" "oai" {
-  comment = "OAI for Jokes Website"
+#resource "aws_cloudfront_origin_access_identity" "oai" {
+#  comment = "OAI for Jokes Website"
+#}
+resource "aws_cloudfront_origin_access_control" "oac" {
+  name                              = aws_s3_bucket.jokes_website_bucket1.id
+  description                       = "OAC for Jokes Website"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
 }
 
 data "aws_iam_policy_document" "s3_policy" {
   statement {
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.jokes_website_bucket.arn}/*"]
+    actions = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.jokes_website_bucket1.arn}/*"]
 
     principals {
-      type        = "AWS"
-      identifiers = [aws_cloudfront_origin_access_identity.oai.iam_arn]
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.jokes_website_distribution.arn]
     }
   }
+  #  statement {
+  #    actions   = ["s3:GetObject"]
+  #    resources = ["${aws_s3_bucket.jokes_website_bucket1.arn}/*"]
+  #
+  #    principals {
+  #      type        = "AWS"
+  #      identifiers = [aws_cloudfront_origin_access_identity.oai.iam_arn]
+  #    }
+  #  }
 }
 
 resource "aws_s3_bucket_policy" "static_website_bucket_policy" {
-  depends_on = [aws_s3_bucket.jokes_website_bucket, aws_s3_bucket_website_configuration.jokes_website_config]
-  bucket = aws_s3_bucket.jokes_website_bucket.id
+  depends_on = [aws_s3_bucket.jokes_website_bucket1, aws_s3_bucket_website_configuration.jokes_website_config]
+  bucket = aws_s3_bucket.jokes_website_bucket1.id
   policy = data.aws_iam_policy_document.s3_policy.json
 }
 
 resource "aws_cloudfront_distribution" "jokes_website_distribution" {
+#  origin {
+#    domain_name = aws_s3_bucket.jokes_website_bucket1.bucket_regional_domain_name
+#    origin_id   = aws_s3_bucket.jokes_website_bucket1.id
+#
+#    s3_origin_config {
+#      origin_access_identity = aws_cloudfront_origin_access_identity.oai.cloudfront_access_identity_path
+#    }
+#  }
   origin {
-    domain_name = aws_s3_bucket.jokes_website_bucket.bucket_regional_domain_name
-    origin_id   = aws_s3_bucket.jokes_website_bucket.id
-
-    s3_origin_config {
-      origin_access_identity = aws_cloudfront_origin_access_identity.oai.cloudfront_access_identity_path
-    }
+    domain_name              = aws_s3_bucket.jokes_website_bucket1.bucket_regional_domain_name
+    origin_id                = aws_s3_bucket.jokes_website_bucket1.id
+    origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
   }
 
   enabled = true
@@ -77,7 +103,7 @@ resource "aws_cloudfront_distribution" "jokes_website_distribution" {
   default_cache_behavior {
     allowed_methods = ["GET", "HEAD"]
     cached_methods  = ["GET", "HEAD"]
-    target_origin_id = aws_s3_bucket.jokes_website_bucket.id
+    target_origin_id = aws_s3_bucket.jokes_website_bucket1.id
 
     forwarded_values {
       query_string = false
